@@ -232,7 +232,9 @@ provide C<is_class_loaded 'Class::Name'>.
 
 =head2 load_class Class::Name, \%options
 
-C<load_class> will load C<Class::Name> or throw an error, much like C<require>.
+C<load_class> will load C<Class::Name> and return the C<Class::Name> if
+successful or throw an error, much like
+L<use_module|Module::Runtime/"Structured-module-use">.
 
 If C<Class::Name> is already loaded (checked with C<is_class_loaded>) then it
 will not try to load the class. This is useful when you have inner packages
