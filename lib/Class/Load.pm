@@ -7,7 +7,6 @@ use Module::Implementation 0.04;
 use Module::Runtime 0.012 qw(
     check_module_name
     module_notional_filename
-    require_module
     use_module
 );
 use Try::Tiny;
@@ -32,10 +31,50 @@ sub load_class {
     my $class   = shift;
     my $options = shift;
 
-    my ($res, $e) = try_load_class($class, $options);
-    return 1 if $res;
+    check_module_name($class);
 
-    _croak($e);
+    local $@;
+    undef $ERROR;
+
+    if (is_class_loaded($class)) {
+        # We need to check this here rather than in is_class_loaded() because
+        # we want to return the error message for a failed version check, but
+        # is_class_loaded just returns true/false.
+        return $class unless $options && defined $options->{-version};
+        return try {
+            $class->VERSION($options->{-version});
+            $class;
+        }
+        catch {
+            _croak($ERROR = $_);
+        };
+    }
+
+    my $file = module_notional_filename($class);
+    # This says "our diagnostics of the package
+    # say perl's INC status about the file being loaded are
+    # wrong", so we delete it from %INC, so when we call require(),
+    # perl will *actually* try reloading the file.
+    #
+    # If the file is already in %INC, it won't retry,
+    # And on 5.8, it won't fail either!
+    #
+    # The extra benefit of this trick, is it helps even on
+    # 5.10, as instead of dying with "Compilation failed",
+    # it will die with the actual error, and thats a win-win.
+    delete $INC{$file};
+    return try {
+        local $SIG{__DIE__} = 'DEFAULT';
+        if ($options && defined $options->{-version}) {
+            use_module($class, $options->{-version});
+        }
+        else {
+            use_module($class);
+        }
+    }
+    catch {
+        _croak($ERROR = $_);
+    };
 }
 
 sub load_first_existing_class {
@@ -133,50 +172,11 @@ sub try_load_class {
     my $class   = shift;
     my $options = shift;
 
-    check_module_name($class);
-
-    local $@;
-    undef $ERROR;
-
-    if (is_class_loaded($class)) {
-        # We need to check this here rather than in is_class_loaded() because
-        # we want to return the error message for a failed version check, but
-        # is_class_loaded just returns true/false.
-        return 1 unless $options && defined $options->{-version};
-        return try {
-            $class->VERSION($options->{-version});
-            1;
-        }
-        catch {
-            _error($_);
-        };
-    }
-
-    my $file = module_notional_filename($class);
-    # This says "our diagnostics of the package
-    # say perl's INC status about the file being loaded are
-    # wrong", so we delete it from %INC, so when we call require(),
-    # perl will *actually* try reloading the file.
-    #
-    # If the file is already in %INC, it won't retry,
-    # And on 5.8, it won't fail either!
-    #
-    # The extra benefit of this trick, is it helps even on
-    # 5.10, as instead of dying with "Compilation failed",
-    # it will die with the actual error, and thats a win-win.
-    delete $INC{$file};
     return try {
-        local $SIG{__DIE__} = 'DEFAULT';
-        if ($options && defined $options->{-version}) {
-            use_module($class, $options->{-version});
-        }
-        else {
-            require_module($class);
-        }
-        1;
+        1 if load_class($class, $options);
     }
     catch {
-        _error($_);
+        _error( $_ );
     };
 }
 
